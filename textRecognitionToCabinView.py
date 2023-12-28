@@ -2,9 +2,12 @@ from flask import Flask, render_template, Response
 import cv2
 import pytesseract
 import re
+import time
 from datetime import datetime
 from picamera.array import PiRGBArray
 from picamera import PiCamera
+import threading
+import os
 
 app = Flask(__name__)
 
@@ -22,16 +25,58 @@ def preprocess_image_for_ocr(frame):
     resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
 
     return resized
+# 
+# def detect_features(frame):
+#     preprocessed_frame = preprocess_image_for_ocr(frame)
+#     
+#     # OCR Configuration: Using psm 6 for detecting a block of text
+#     custom_config = r'--oem 3 --psm 6'
+#     
+#     # Use pytesseract to get the bounding box coordinates and other data of each text segment
+#     data = pytesseract.image_to_data(preprocessed_frame, config=custom_config, output_type=pytesseract.Output.DICT)
+# 
+#     full_text = ""  # String to accumulate detected text
+# 
+#     for i in range(len(data['text'])):
+#         # Only process if confidence is high and text is non-empty
+#         if int(data['conf'][i]) > 60 and data['text'][i].strip() != '':
+#             x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+#             
+#             # Accumulate text
+#             full_text += data['text'][i] + " "
+#             
+#             # Draw a green rectangle around the text
+#             frame = cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+# 
+#     # Regular expression to match pattern 'A1.C1.R1'
+#     pattern = r'\b[A-Z]\d\.[C][1-9]\.[R][1-9]\b'
+#     matches = re.findall(pattern, full_text)
+# 
+#     # Print the entire text if it matches the pattern
+#     if matches:
+#         current_time = datetime.now().strftime("%H:%M:%S")  # Get the current time
+#         print(f"Detected Text: {' '.join(matches)} at {current_time}")  # Print text with time
+# 
+#     return frame
 
-def detect_features(frame):
-    preprocessed_frame = preprocess_image_for_ocr(frame)
+def get_centered_roi(frame):
+    h, w = frame.shape[:2]
+    roi_size = min(w, h) // 2
+    x0 = (w - roi_size) // 2
+    y0 = (h - roi_size) // 2
+    return frame[y0:y0+roi_size, x0:x0+roi_size], x0, y0, roi_size
+
+def perform_ocr(frame, frame_count):
+    #preprocessed_frame = preprocess_image_for_ocr(frame)
     
-    # OCR Configuration: Using psm 6 for detecting a block of text
+    # Get the centered ROI and its coordinates
+    roi, x_offset, y_offset, roi_size = get_centered_roi(frame)
+    preprocessed_frame = preprocess_image_for_ocr(roi)
+    
+    # OCR Configuration and Processing
     custom_config = r'--oem 3 --psm 6'
-    
-    # Use pytesseract to get the bounding box coordinates and other data of each text segment
     data = pytesseract.image_to_data(preprocessed_frame, config=custom_config, output_type=pytesseract.Output.DICT)
-
+    
     full_text = ""  # String to accumulate detected text
 
     for i in range(len(data['text'])):
@@ -42,8 +87,12 @@ def detect_features(frame):
             # Accumulate text
             full_text += data['text'][i] + " "
             
+            # Adjust coordinates for the original frame
+            x += x_offset
+            y += y_offset
+            
             # Draw a green rectangle around the text
-            frame = cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
     # Regular expression to match pattern 'A1.C1.R1'
     pattern = r'\b[A-Z]\d\.[C][1-9]\.[R][1-9]\b'
@@ -54,18 +103,29 @@ def detect_features(frame):
         current_time = datetime.now().strftime("%H:%M:%S")  # Get the current time
         print(f"Detected Text: {' '.join(matches)} at {current_time}")  # Print text with time
 
-    return frame
+        # Print the recognized text
+        print(f"Frame {frame_count}: Detected Text: {full_text}")
 
+# function to   
 def gen_frames():  # Generate frame by frame from camera
+
     with PiCamera() as camera:
         camera.resolution = (640, 480)
         rawCapture = PiRGBArray(camera, size=(640, 480))
         # Allow the camera to warmup
         time.sleep(0.1)
+        
+        frame_count = 0
+        ocr_interval = 10  # Perform OCR every 30 frames
 
         for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
             image = frame.array
-            image = detect_features(image)  # Apply OCR to each frame
+            
+            if frame_count % ocr_interval == 0:
+                #image = detect_features(image)  # Apply OCR to every 30th frame
+                # Start OCR in a new thread
+                ocr_thread = threading.Thread(target=perform_ocr, args=(image, frame_count))
+                ocr_thread.start()
 
             # Show the frame with OCR applied
             cv2.imshow('OCR Camera View', image)
@@ -77,7 +137,8 @@ def gen_frames():  # Generate frame by frame from camera
             frame = buffer.tobytes()
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n\r\n')
-
+            
+            frame_count += 1
             rawCapture.truncate(0)
 
 @app.route('/')
@@ -90,5 +151,18 @@ def video_feed():
     # Video streaming route. Put this in the src attribute of an img tag in 'index.html'
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
+def run_flask():
+    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True)
+    # Run Flask in a separate thread
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.start()
+
+    print("Enter 'q' to quit:")
+    while True:  # Main thread for user input
+        if input() == 'q':
+            # Use os._exit(0) to close the entire process including all threads
+            os._exit(0)
+
