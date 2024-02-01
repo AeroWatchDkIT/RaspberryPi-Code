@@ -124,6 +124,27 @@ def perform_ocr(frame,roi, x_offset, y_offset):
 
     return frame
 
+# function to split the frame into two ROIs
+def get_split_roi(frame, scale=0.5):
+    """
+    Get two split ROIs in the frame, one for the top half and one for the bottom half.
+    :param frame: The input frame.
+    :param scale: Fraction of width to include in the ROIs.
+    :return: Tuple containing the two ROIs and their x, y coordinates.
+    """
+    h, w = frame.shape[:2]
+    roi_width = int(scale * w)
+    roi_height = h // 2  # Split the height into two
+
+    # Top ROI (for pallet tag)
+    x0_top, y0_top = (w - roi_width) // 2, 0
+    top_roi = frame[y0_top:y0_top + roi_height, x0_top:x0_top + roi_width]
+
+    # Bottom ROI (for shelf tag)
+    x0_bottom, y0_bottom = (w - roi_width) // 2, roi_height
+    bottom_roi = frame[y0_bottom:y0_bottom + roi_height, x0_bottom:x0_bottom + roi_width]
+
+    return (top_roi, x0_top, y0_top), (bottom_roi, x0_bottom, y0_bottom)
 def get_centered_roi(frame, scale=0.5):
     """
     Get a centered ROI in the frame.
@@ -172,7 +193,7 @@ def generate_frames():
         for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
             image = frame.array
         
-             # Set line length
+            # Set line length
             line_length = 30  # Length of the line (30 pixels)
 
             # Width and height of the frame
