@@ -44,6 +44,8 @@ app = Flask(__name__)
 CORS(app)
 
 detected_text = None  # Global variable to store the detected text
+shelf_tag =None # Global variable to store the shelf tag
+pallet_tag = None # Global variable to store the pallet tag
 last_sent_text = None
 global_detection_time = None # Global variable for detection time
 camera_is_active = False # Global flag to indicate the status of the camera
@@ -67,6 +69,9 @@ def preprocess_image_for_ocr(frame, gamma = 2):
 
 # # function to perform OCR on the frame
 def perform_ocr(roi, x_offset, y_offset, roi_position):
+    global shelf_tag
+    global pallet_tag
+
     preprocessed_frame = preprocess_image_for_ocr(roi)
     global detected_text, last_sent_text  # Use the global variable to store the detected text
     global global_detection_time  # Use the global variable to store the detection time
@@ -94,11 +99,17 @@ def perform_ocr(roi, x_offset, y_offset, roi_position):
 
     if matches:
         detected_text = ' '.join(matches)
+        if detected_text.find("S-") != -1:#if the detected text is a shelf tag
+            shelf_tag = detected_text
+        elif detected_text.find("P-") != -1:#if the detected text is a pallet tag
+            pallet_tag = detected_text
+
         if detected_text != last_sent_text:
             last_sent_text = detected_text
             global_detection_time = datetime.now().strftime("%H:%M:%S")
             print(f"Detected Text ({roi_position}): {detected_text} at {global_detection_time}")
             buzz(0.5)
+            do_some_bs()
         return detected_text, roi_position
     else:
         return None, roi_position
@@ -266,27 +277,30 @@ def generate_frames():
 #     CameraUtils.generate_frames()
 
 # Example usage of tag parsing
-tag_code = "S-0002.C2.R4"
-shelf_id, column, row = TagParser.parse_tag_code(tag_code)
+#tag_code = "S-0002.C2.R4"
+# pattern S-A5.C3.R6
+# tag_code = "S-A5.C3.R6"
+# shelf_id, column, row = TagParser.parse_tag_code(tag_code)
 
-# Constructing JSON data
-json_data = TagParser.construct_json(shelf_id)
+def do_some_bs():
+    # Constructing JSON data
+    json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
 
-# URL of the backend endpoint
-url = "https://192.168.1.2:7128/Interactions"
-#url = "https://192.168.16.168:7128/Interactions"
-headers = {"Content-Type": "application/json"}
+    # URL of the backend endpoint
+    #url = "https://192.168.1.2:7128/Interactions"
+    url = "https://192.168.16.222:7128/Interactions/TwoCodes"
+    headers = {"Content-Type": "application/json"}
 
-# Making the POST request
-response = TagParser.post_data(url, json_data)
+    # Making the POST request
+    response = TagParser.post_data(url, json_data)
 
-response = requests.post(url, data=json_data,headers=headers, verify=False)
+    response = requests.post(url, data=json_data,headers=headers, verify=False)
 
-# Processing the response
-if response.status_code == 200:  # Or another success code as per your API
-    print("Success:", response.text)
-else:
-    print("Error:", response.status_code, response.text)
+    # Processing the response
+    if response.status_code == 200:  # Or another success code as per your API
+        print("Success:", response.text)
+    else:
+        print("Error:", response.status_code, response.text)
 
 #parsed = response.text
 #print(parsed)
@@ -307,7 +321,7 @@ def video_feed():
 @app.route('/get_detected_text')
 def get_detected_text():
     #return jsonify({"detected_text": detected_text, "detection_time": global_detection_time})
-    global global_detection_time, last_sent_text
+    global global_detection_time, last_sent_text, roi_position
     # Check if there's new text to send
     if last_sent_text:
         response = {"detected_text": last_sent_text, "detection_time": global_detection_time}

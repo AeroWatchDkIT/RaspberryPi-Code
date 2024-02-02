@@ -16,7 +16,7 @@ class TagParser:
 
     # Construct JSON data for POST request
     @staticmethod
-    def construct_json(shelf_id, pallet_id="P-0002", user_id="U-0001", forklift_id="F-0012"):
+    def construct_json(shelf_id, pallet_id, user_id="U-0001", forklift_id="F-0012"):
         data = {
             "pallet": {
                 "id": pallet_id,
