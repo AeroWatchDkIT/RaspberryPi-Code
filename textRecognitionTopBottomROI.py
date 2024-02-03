@@ -96,7 +96,7 @@ def perform_ocr(roi, x_offset, y_offset, roi_position):
         full_text += data['text'][i] + " "
             
     matches = re.findall(pattern, full_text)
-
+    # Print the entire text if it matches the pattern
     if matches:
         detected_text = ' '.join(matches)
         if detected_text.find("S-") != -1:#if the detected text is a shelf tag
@@ -109,45 +109,13 @@ def perform_ocr(roi, x_offset, y_offset, roi_position):
             global_detection_time = datetime.now().strftime("%H:%M:%S")
             print(f"Detected Text ({roi_position}): {detected_text} at {global_detection_time}")
             buzz(0.5)
-            do_some_bs()
+        
+            #TagParser.send_tags(shelf_tag, pallet_tag)
         return detected_text, roi_position
     else:
         return None, roi_position
 
-    # # Print the entire text if it matches the pattern
-    # if matches:
-        
-    #     detected_text = ' '.join(matches)
-    #     # Check if the detected text is different from the last sent text
-    #     if detected_text != last_sent_text:
-    #         # Update the global detection time variable
-    #         last_sent_text = detected_text
-    #         global_detection_time = datetime.now().strftime("%H:%M:%S")
-    #         current_time = global_detection_time
-    #         print(f"Detected Text: {detected_text } at {current_time}")  # Print text with time
-            
-    #         # Buzz the buzzer
-    #         buzz(0.5)  # Buzz for half a second
-
-    # return roi
-
 # function to split the frame into two ROIs
-# def get_split_roi(frame, scale=0.5):
-
-#     h, w = frame.shape[:2]
-#     roi_width = int(scale * w)
-#     roi_height = h // 2  # Split the height into two
-
-#     # Top ROI (for pallet tag)
-#     x0_top, y0_top = (w - roi_width) // 2, 0
-#     top_roi = frame[y0_top:y0_top + roi_height, x0_top:x0_top + roi_width]
-
-#     # Bottom ROI (for shelf tag)
-#     x0_bottom, y0_bottom = (w - roi_width) // 2, roi_height
-#     bottom_roi = frame[y0_bottom:y0_bottom + roi_height, x0_bottom:x0_bottom + roi_width]
-
-#     return (top_roi, x0_top, y0_top), (bottom_roi, x0_bottom, y0_bottom)
-
 def get_split_roi(frame, part):
     h, w = frame.shape[:2]
     roi_width = int(w)  # Full width
@@ -181,13 +149,12 @@ def generate_frames():
         time.sleep(0.1)
         
         frame_count = 0
-        ocr_interval = 5  # Perform OCR every 10 frames
+        ocr_interval = 10  # Perform OCR every 10 frames
         fps = measure_fps(camera,rawCapture)
 
 
         for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
             image = frame.array
-
             # Set line length
             line_length = 30  # Length of the line (30 pixels)
 
@@ -218,15 +185,12 @@ def generate_frames():
             cv2.putText(image, f"FPS: {fps:.2f}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
             cv2.putText(image, f"OCR: {ocr_interval}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
+
             # Split the frame into two ROIs
             top_roi, x_offset_top, y_offset_top = get_split_roi(image, 'top')
             bottom_roi, x_offset_bottom, y_offset_bottom = get_split_roi(image, 'bottom')
-
-            # Perform OCR on top and bottom ROIs, passing 'top' and 'bottom' as roi_position
-            top_text, top_position = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
-            bottom_text, bottom_position = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
-
-            # Padding values
+        
+            #Padding values
             top_padding = 20
             bottom_padding = 20
             left_padding = 40
@@ -244,17 +208,10 @@ def generate_frames():
                         (x_offset_bottom + left_padding, y_offset_bottom + top_padding), 
                         (x_offset_bottom + bottom_roi.shape[1] - right_padding, y_offset_bottom + bottom_roi.shape[0] - bottom_padding), 
                         (255, 0, 0), 2)
-            # top ROI rectangle
-            # cv2.rectangle(image, (x_offset_top, y_offset_top), (x_offset_top + top_roi.shape[1], y_offset_top + top_roi.shape[0]), (255, 0, 0), 2)
-            # # bottom ROI rectangle
-            # cv2.rectangle(image, (x_offset_bottom, y_offset_bottom), (x_offset_bottom + bottom_roi.shape[1], y_offset_bottom + bottom_roi.shape[0]), (255, 0, 0), 2)
-
+            
             # to call OCR methods:
             if frame_count % ocr_interval == 0:
-                # Recheck this part if needed, since OCR is already performed above
-                top_text, top_position = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
-                bottom_text, bottom_position = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
-            
+                process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom)
 
             # Show the frame with OCR applied
             cv2.imshow('OCR Camera View', image)
@@ -269,41 +226,31 @@ def generate_frames():
             
             frame_count += 1
             rawCapture.truncate(0)
+# function to process the ROIs for OCR and send the detected tags to the API
+def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom):
+    global shelf_tag
+    global pallet_tag
+
+    # Reset detected tags before processing
+    shelf_tag = None
+    pallet_tag = None
+
+    # Process Top ROI for Pallet Tag
+    pallet_tag, _ = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
+
+    # Process Bottom ROI for Shelf Tag
+    shelf_tag, _ = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
+
+    # Check if both tags were detected and send them to the API
+    if pallet_tag and shelf_tag:
+        TagParser.send_tags(shelf_tag, pallet_tag)
+        # Consider resetting the global tags if necessary
 
 # def main():
 #     # Initialize any required variables or configurations
 
 #     # Start camera feed and process frames
 #     CameraUtils.generate_frames()
-
-# Example usage of tag parsing
-#tag_code = "S-0002.C2.R4"
-# pattern S-A5.C3.R6
-# tag_code = "S-A5.C3.R6"
-# shelf_id, column, row = TagParser.parse_tag_code(tag_code)
-
-def do_some_bs():
-    # Constructing JSON data
-    json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
-
-    # URL of the backend endpoint
-    #url = "https://192.168.1.2:7128/Interactions"
-    url = "https://192.168.16.222:7128/Interactions/TwoCodes"
-    headers = {"Content-Type": "application/json"}
-
-    # Making the POST request
-    response = TagParser.post_data(url, json_data)
-
-    response = requests.post(url, data=json_data,headers=headers, verify=False)
-
-    # Processing the response
-    if response.status_code == 200:  # Or another success code as per your API
-        print("Success:", response.text)
-    else:
-        print("Error:", response.status_code, response.text)
-
-#parsed = response.text
-#print(parsed)
 
 @app.route('/')
 def index():
@@ -335,6 +282,7 @@ def get_detected_text():
 def run_flask():
     # Set log level to WARNING to hide regular route access logs
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    print(f"Starting Flask server on http://0.0.0.0:5001")
     app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
 
 if __name__ == '__main__':
@@ -356,5 +304,11 @@ if __name__ == '__main__':
     #     results = db.execute_query("SELECT * FROM Pallet")
     #     db.close()
 
-    # Print results to the console
-        #print("Database Results:", results)
+    # # Print results to the console
+    #     #print("Database Results:", results)
+            
+
+            # Perform OCR on top and bottom ROIs, passing 'top' and 'bottom' as roi_position
+            #top_text, top_position = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
+            #bottom_text, bottom_position = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
+            #process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom)         

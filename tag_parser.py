@@ -20,13 +20,13 @@ class TagParser:
         data = {
             "pallet": {
                 "id": pallet_id,
-                "state": 1,
-                "location": "Warehouse D"
+                "state": 0,
+                "location": "Warehouse B"
             },
             "shelf": {
                 "id": shelf_id,
                 "palletId": None,
-                "location": "None"
+                "location": "Warehouse D"
             },
             "timeOfInteraction": datetime.now().isoformat(),
             "action": "Pallet removed from shelf",
@@ -37,7 +37,22 @@ class TagParser:
 
     # Send POST request to API
     @staticmethod
-    def post_data(url, json_data):
+    def send_tags(shelf_tag, pallet_tag):
+        # Constructing JSON data
+        json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
+
+        # URL of the backend endpoint
+        url = "https://192.168.1.2:7128/Interactions/TwoCodes"
+        #url = "https://192.168.16.222:7128/Interactions/TwoCodes"
         headers = {"Content-Type": "application/json"}
-        response = requests.post(url, data=json_data, headers=headers, verify=False)
-        return response
+
+        # Making the POST request
+        #response = TagParser.post_data(url, json_data)
+
+        response = requests.post(url, data=json_data,headers=headers, verify=False)
+
+        # Processing the response
+        if response.status_code == 200:  # Or another success code as per your API
+            print("Success:", response.text)
+        else:
+            print("Error:", response.status_code, response.text)
