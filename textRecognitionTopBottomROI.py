@@ -15,7 +15,9 @@ import logging
 import requests
 import json
 from requests.adapters import HTTPAdapter, Retry
+import time, threading
 import urllib3
+import os
 import RPi.GPIO as GPIO
 
 from tag_parser import TagParser
@@ -52,6 +54,15 @@ camera_is_active = False # Global flag to indicate the status of the camera
 
 # Setting the path to the Tesseract executable
 pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
+def check_for_failed_requests():
+    print(time.ctime())
+    TagParser.send_failed_tags()
+    threading.Timer(10, check_for_failed_requests).start()
+
+check_for_failed_requests()
+
+TagParser.send_tags(shelf_tag="S-1289", pallet_tag="P-1289")
 
 # # function to preprocess the image for OCR
 def preprocess_image_for_ocr(frame, gamma = 2):
