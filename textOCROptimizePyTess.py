@@ -23,6 +23,7 @@ import RPi.GPIO as GPIO
 from tag_parser import TagParser
 # from ocr_utils import OCRUtils
 #from camera_utils import CameraUtils
+#from pallet_database  import Database
 from pathlib import Path
 tessdata_path = Path("/usr/share/tesseract-ocr/4.00/tessdata/")
 tesApi = tesserocr.PyTessBaseAPI(path=str(tessdata_path), lang='eng')
@@ -53,32 +54,34 @@ last_sent_text = None
 global_detection_time = None # Global variable for detection time
 
 
+# Setting the path to the Tesseract executable
+#pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'
+
 # # function to preprocess the image for OCR
 def preprocess_image_for_ocr(frame, gamma = 2):
     # Display the original image
     # cv2.imshow('Original Image', frame)
     # cv2.waitKey(0)  # Wait for a key press to close the window
     # cv2.destroyAllWindows()
-    
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
 
     # Apply thresholding
     _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY)
 
     # Resize for consistency
     #resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
-    #resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_NEAREST)
-    
+    resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_NEAREST)
     # Display the preprocessed image
-    # cv2.imshow('Preprocessed Image', thresh)
+    # cv2.imshow('Preprocessed Image', resized)
     # cv2.waitKey(0)  # Wait for a key press to close the window
     # cv2.destroyAllWindows()
 
-    return thresh
+    return resized
 
 # function to perform OCR on the frame
-def perform_ocr(roi, roi_position):
+def perform_ocr(roi, x_offset, y_offset, roi_position):
     global shelf_tag
     global pallet_tag
 
@@ -93,9 +96,24 @@ def perform_ocr(roi, roi_position):
     #data = tesApi.GetUTF8Text()
     full_text = tesApi.GetUTF8Text()
 
+    # OCR Configuration: Using psm 6 for detecting a block of text
+    #custom_config = r'--oem 3 --psm 6'
+    
+    # Use pytesseract to get the bounding box coordinates and other data of each text segment
+    #data = pytesseract.image_to_data(preprocessed_frame, config=custom_config, output_type=pytesseract.Output.DICT)
+
+    # Concatenate all texts into a single string
+    #full_text = " ".join(data['text'])
+
+
     # Regular expression to match pattern 'P-A1.C1.R1'
     #pattern = r'[A-Z]-[A-Z]\d{1,2}\.[C][1-9]\.[R][1-9]'
     pattern = r'[SP]-[A-Z]\d\.[A-Z]\d\.[A-Z]\d'
+
+    # for i in range(len(data['text'])):
+            
+    #         # Accumulate text
+    #     full_text += data['text'][i] + " "
             
     matches = re.findall(pattern, full_text)
     # Print the entire text if it matches the pattern
@@ -111,9 +129,9 @@ def perform_ocr(roi, roi_position):
             #global_detection_time = datetime.now().strftime("%H:%M:%S")
             global_detection_time = datetime.now()
             print(f"Detected Text ({roi_position}): {detected_text} at {global_detection_time}")
-            #time.sleep(1) # sleep for a second to before buzzing the buzzer 
             buzz(0.5)
-
+        
+            #TagParser.send_tags(shelf_tag, pallet_tag)
         return detected_text, roi_position
     else:
         print(f"No match found in ({roi_position}) ROI")
@@ -146,62 +164,37 @@ def generate_frames():
         
         frame_count = 0
         ocr_interval = 5  # Perform OCR every 10 frames
-        # Capture frames from the camera
+
+
         for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
             image = frame.array
-            # Set line length
-            line_length = 30  # Length of the line (30 pixels)
-
-            # Width and height of the frame
-            frame_width = image.shape[1]
-            frame_height = image.shape[0]
-
-            # Middle position for left and right lines (vertical)
-            mid_vertical = frame_height // 2 # Position at half the height of the frame
-
-            # Middle position for top and bottom lines (horizontal)
-            mid_horizontal = frame_width // 2  # Position at half the width of the frame
-
-            # Draw lines on each side of the frame
-            # Left side (horizontal line at the middle)
-            cv2.line(image,  (0, mid_vertical), (line_length, mid_vertical),   (0, 255, 0), 2)
-            # Right side (horizontal line at the middle)
-            cv2.line(image,  (frame_width - line_length, mid_vertical), (frame_width, mid_vertical),  (0, 255, 0), 2)
-            
 
             # Split the frame into two ROIs
             top_roi, x_offset_top, y_offset_top = get_split_roi(image, 'top')
             bottom_roi, x_offset_bottom, y_offset_bottom = get_split_roi(image, 'bottom')
         
-            # control Padding values for the top ROI
-            top_padding_topROI = 80
-            bottom_padding_topROI = 20
-            # control Padding values for the bottom ROI
-            top_padding_bottomROI = 60
-            bottom_padding_bottomROI = 50
-
-            left_padding = 100
-            right_padding = 130
-
+            #Padding values
+            top_padding = 30
+            bottom_padding = 20
+            left_padding = 60
+            right_padding = 40
             # Draw the blue ROI rectangle here
+
             # Adjusted rectangle for the top ROI
             cv2.rectangle(image, 
-                        (x_offset_top + left_padding, y_offset_top + top_padding_topROI), 
-                        (x_offset_top + top_roi.shape[1] - right_padding, y_offset_top + top_roi.shape[0] - bottom_padding_topROI), 
+                        (x_offset_top + left_padding, y_offset_top + top_padding), 
+                        (x_offset_top + top_roi.shape[1] - right_padding, y_offset_top + top_roi.shape[0] - bottom_padding), 
                         (255, 0, 0), 2)
 
             # Adjusted rectangle for the bottom ROI
             cv2.rectangle(image, 
-                        (x_offset_bottom + left_padding, y_offset_bottom + top_padding_bottomROI), 
-                        (x_offset_bottom + bottom_roi.shape[1] - right_padding, y_offset_bottom + bottom_roi.shape[0] - bottom_padding_bottomROI), 
+                        (x_offset_bottom + left_padding, y_offset_bottom + top_padding), 
+                        (x_offset_bottom + bottom_roi.shape[1] - right_padding, y_offset_bottom + bottom_roi.shape[0] - bottom_padding), 
                         (255, 0, 0), 2)
             
             # to call OCR methods:
             if frame_count % ocr_interval == 0:
-                
-                process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom,
-                            top_padding_topROI, bottom_padding_topROI, left_padding, right_padding,
-                            top_padding_bottomROI, bottom_padding_bottomROI)
+                process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom)
 
             # Show the frame with OCR applied
             cv2.imshow('OCR Camera View', image)
@@ -217,33 +210,48 @@ def generate_frames():
             frame_count += 1
             rawCapture.truncate(0)
 
+
 # function to process the ROIs for OCR and send the detected tags to the API
-def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom,
-                top_padding_topROI, bottom_padding_topROI, left_padding, right_padding,
-                top_padding_bottomROI, bottom_padding_bottomROI):
+def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom):
     global shelf_tag
     global pallet_tag
 
+    # Padding values
+    top_padding = 30
+    bottom_padding = 20
+    left_padding = 60
+    right_padding = 40
+
     # Reset detected tags before processing
+
     shelf_tag = None
     pallet_tag = None
 
     # Extract the relevant portion of the top ROI based on the rectangle
-    top_roi_processed = top_roi[top_padding_topROI : top_roi.shape[0] - bottom_padding_topROI,
-                                left_padding : top_roi.shape[1] - right_padding]
+    top_roi_processed = top_roi[y_offset_top + top_padding : y_offset_top + top_roi.shape[0] - bottom_padding,
+                                x_offset_top + left_padding : x_offset_top + top_roi.shape[1] - right_padding]
 
     # Extract the relevant portion of the bottom ROI based on the rectangle
-    bottom_roi_processed = bottom_roi[top_padding_bottomROI : bottom_roi.shape[0] - bottom_padding_bottomROI,
-                                  left_padding : bottom_roi.shape[1] - right_padding]
-    
-    pallet_tag, _ = perform_ocr(top_roi_processed, "top")
-    shelf_tag, _ = perform_ocr(bottom_roi_processed, "bottom")
-    #time.sleep(5) # Sleep for 5 seconds to prevent repeated OCR
+    # bottom_roi_processed = bottom_roi[y_offset_bottom + top_padding : y_offset_bottom + bottom_roi.shape[0] - bottom_padding,
+    #                                   x_offset_bottom + left_padding : x_offset_bottom + bottom_roi.shape[1] - right_padding]
+    # print("Top ROI Processed Shape:", top_roi_processed.shape)
+    # print("Bottom ROI Processed Shape:", bottom_roi_processed.shape)
+    # Process each ROI with OCR
+    pallet_tag, _ = perform_ocr(top_roi_processed, x_offset_top, y_offset_top, "top")
+    #shelf_tag, _ = perform_ocr(bottom_roi_processed, x_offset_bottom, y_offset_bottom, "bottom")
+
+    # Process Top ROI for Pallet Tag
+    #pallet_tag, _ = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
+    #Delay before processing the next ROI
+    #time.sleep(5)  # Delay for 2 seconds, adjust the delay as needed
+    #Process Bottom ROI for Shelf Tag
+    shelf_tag, _ = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
 
     # Check if both tags were detected and send them to the API
     if pallet_tag and shelf_tag:
         TagParser.send_tags(shelf_tag, pallet_tag)
         # Consider resetting the global tags if necessary
+
 
 
 @app.route('/')
@@ -273,7 +281,6 @@ def get_detected_text():
 
     return jsonify(response)
 
-# function to run the Flask server
 def run_flask():
     # Set log level to WARNING to hide regular route access logs
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
