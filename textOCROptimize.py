@@ -53,6 +53,13 @@ last_sent_text = None
 global_detection_time = None # Global variable for detection time
 
 
+def check_for_failed_requests():
+    print(time.ctime())
+    TagParser.send_failed_tags()
+    threading.Timer(10, check_for_failed_requests).start()
+
+check_for_failed_requests()
+
 # # function to preprocess the image for OCR
 def preprocess_image_for_ocr(frame, gamma = 2):
     # Display the original image
