@@ -1,9 +1,10 @@
 from flask import Flask, render_template, Response
 import cv2
-import re
-import time
+import pytesseract
 import tesserocr
 from PIL import Image
+import re
+import time
 from datetime import datetime ,timedelta
 from picamera.array import PiRGBArray
 from picamera import PiCamera
@@ -20,28 +21,24 @@ import urllib3
 import RPi.GPIO as GPIO
 
 from tag_parser import TagParser
-
+# from ocr_utils import OCRUtils
+#from camera_utils import CameraUtils
 from pathlib import Path
 tessdata_path = Path("/usr/share/tesseract-ocr/4.00/tessdata/")
 tesApi = tesserocr.PyTessBaseAPI(path=str(tessdata_path), lang='eng')
-
-# from ocr_utils import OCRUtils
-#from camera_utils import CameraUtils
-
-#from pallet_database  import Database
 
 # Use GPIO numbers not pin numbers
 GPIO.setmode(GPIO.BCM)
 
 # Set the GPIO pin (e.g., GPIO 17) to which the buzzer is connected
-#buzzer_pin = 18
-#GPIO.setup(buzzer_pin, GPIO.OUT)
+buzzer_pin = 18
+GPIO.setup(buzzer_pin, GPIO.OUT)
 
 # Function to buzz the buzzer
-#def buzz(duration):
-    #GPIO.output(buzzer_pin, True)
-    #time.sleep(duration)
-    #GPIO.output(buzzer_pin, False)
+def buzz(duration):
+    GPIO.output(buzzer_pin, True)
+    time.sleep(duration)
+    GPIO.output(buzzer_pin, False)
 
 # Suppress only the single InsecureRequestWarning from urllib3 needed
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -54,24 +51,34 @@ shelf_tag =None # Global variable to store the shelf tag
 pallet_tag = None # Global variable to store the pallet tag
 last_sent_text = None
 global_detection_time = None # Global variable for detection time
-camera_is_active = False # Global flag to indicate the status of the camera
 
 
 # # function to preprocess the image for OCR
 def preprocess_image_for_ocr(frame, gamma = 2):
+    # Display the original image
+    # cv2.imshow('Original Image', frame)
+    # cv2.waitKey(0)  # Wait for a key press to close the window
+    # cv2.destroyAllWindows()
+    
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
     # Apply thresholding
-    _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY)
 
     # Resize for consistency
-    resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
+    #resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
+    #resized = cv2.resize(thresh, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_NEAREST)
+    
+    # Display the preprocessed image
+    # cv2.imshow('Preprocessed Image', thresh)
+    # cv2.waitKey(0)  # Wait for a key press to close the window
+    # cv2.destroyAllWindows()
 
-    return resized
+    return thresh
 
-# # function to perform OCR on the frame
-def perform_ocr(roi, x_offset, y_offset, roi_position):
+# function to perform OCR on the frame
+def perform_ocr(roi, roi_position):
     global shelf_tag
     global pallet_tag
 
@@ -79,50 +86,40 @@ def perform_ocr(roi, x_offset, y_offset, roi_position):
     global detected_text, last_sent_text  # Use the global variable to store the detected text
     global global_detection_time  # Use the global variable to store the detection time
     
+    # Set the image to Tesseract API
     eemaj = Image.fromarray(preprocessed_frame)
     tesApi.SetImage(eemaj)
 
-    data = tesApi.GetUTF8Text()
+    #data = tesApi.GetUTF8Text()
+    full_text = tesApi.GetUTF8Text()
 
-    #print(data)
-    return data, roi_position
-    # full_text = ""  # String to accumulate detected text
-
-    # # Regular expression to match pattern 'P-A1.C1.R1'
-    # #pattern = r'[A-Z]-[A-Z]\d{1,2}\.[C][1-9]\.[R][1-9]'
-    # #pattern = r'[SP]-[A-Z]\d\.[A-Z]\d\.[A-Z]\d'
-    # pattern = re.compile(r'[SP]-[A-Z]\d\.[A-Z]\d\.[A-Z]\d')
+    # Regular expression to match pattern 'P-A1.C1.R1'
+    #pattern = r'[A-Z]-[A-Z]\d{1,2}\.[C][1-9]\.[R][1-9]'
+    pattern = r'[SP]-[A-Z]\d\.[A-Z]\d\.[A-Z]\d'
             
+    matches = re.findall(pattern, full_text)
+    # Print the entire text if it matches the pattern
+    if matches:
+        detected_text = ' '.join(matches)
+        if detected_text.find("S-") != -1:#if the detected text is a shelf tag
+            shelf_tag = detected_text
+        elif detected_text.find("P-") != -1:#if the detected text is a pallet tag
+            pallet_tag = detected_text
 
-    # # Padding or margin to apply around the text
-    # padding = 5  # Adjust the padding as needed
-    # # Iterate through the detected text
-    # # for i in range(len(data['text'])):
-            
-    # #         # Accumulate text
-    # #     full_text += data['text'][i] + " "
-            
-    # #matches = re.findall(pattern, full_text)
-    # matches = pattern.search(data)
+        if detected_text != last_sent_text:
+            last_sent_text = detected_text
+            #global_detection_time = datetime.now().strftime("%H:%M:%S")
+            global_detection_time = datetime.now()
+            print(f"Detected Text ({roi_position}): {detected_text} at {global_detection_time}")
+            #time.sleep(1) # sleep for a second to before buzzing the buzzer 
+            buzz(0.5)
 
-    # if matches:
-    #     detected_text = matches.group(0)
-    #     if "S-" in detected_text:  # if the detected text is a shelf tag
-    #         shelf_tag = detected_text
-    #     elif "P-" in detected_text:  # if the detected text is a pallet tag
-    #         pallet_tag = detected_text
+        return detected_text, roi_position
+    else:
+        print(f"No match found in ({roi_position}) ROI")
+        return None, roi_position
 
-    #     if detected_text != last_sent_text:
-    #         last_sent_text = detected_text
-    #         global_detection_time = datetime.now().strftime("%H:%M:%S")
-    #         print(f"Extracted code ({roi_position}): {detected_text} / Time: {datetime.now()}")
-    #         #print(f"Detected Text ({roi_position}): {detected_text} at {global_detection_time}")
-    #         #buzz(0.5)
-    #         #do_some_bs()
-    #     return detected_text, roi_position
-    # else:
-    #     return None, roi_position
-
+# function to split the frame into two ROIs
 def get_split_roi(frame, part):
     h, w = frame.shape[:2]
     roi_width = int(w)  # Full width
@@ -135,17 +132,6 @@ def get_split_roi(frame, part):
 
     raise ValueError("Invalid part specified. Use 'top' or 'bottom'.")
          
-# function to measure the frames per second
-def measure_fps(camera,rawCapture, num_frames=60):
-    start = time.time()
-    for _ in range(num_frames):
-        camera.capture(rawCapture, format="bgr", use_video_port=True)
-        rawCapture.truncate(0)
-    end = time.time()
-    return num_frames / (end - start)
-
-def is_non_empty_string(s):
-    return bool(s and not s.isspace())
 
 # Generate frame by frame from camera   
 def generate_frames():  
@@ -160,12 +146,9 @@ def generate_frames():
         
         frame_count = 0
         ocr_interval = 5  # Perform OCR every 10 frames
-        fps = measure_fps(camera,rawCapture)
-
-
+        # Capture frames from the camera
         for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
             image = frame.array
-
             # Set line length
             line_length = 30  # Length of the line (30 pixels)
 
@@ -182,70 +165,43 @@ def generate_frames():
             # Draw lines on each side of the frame
             # Left side (horizontal line at the middle)
             cv2.line(image,  (0, mid_vertical), (line_length, mid_vertical),   (0, 255, 0), 2)
-
             # Right side (horizontal line at the middle)
             cv2.line(image,  (frame_width - line_length, mid_vertical), (frame_width, mid_vertical),  (0, 255, 0), 2)
-
-            # Top side (vertical line at the middle)
-            cv2.line(image, (mid_horizontal, 0),  (mid_horizontal, line_length), (0, 255, 0), 2)
-
-            # Bottom side (vertical line at the middle)
-            cv2.line(image,  (mid_horizontal, frame_height - line_length), (mid_horizontal, frame_height), (0, 255, 0), 2)
             
-            # Draw FPS on the frame
-            cv2.putText(image, f"FPS: {fps:.2f}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            cv2.putText(image, f"OCR: {ocr_interval}", (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
             # Split the frame into two ROIs
             top_roi, x_offset_top, y_offset_top = get_split_roi(image, 'top')
             bottom_roi, x_offset_bottom, y_offset_bottom = get_split_roi(image, 'bottom')
+        
+            # control Padding values for the top ROI
+            top_padding_topROI = 80
+            bottom_padding_topROI = 20
+            # control Padding values for the bottom ROI
+            top_padding_bottomROI = 60
+            bottom_padding_bottomROI = 50
 
-            # Perform OCR on top and bottom ROIs, passing 'top' and 'bottom' as roi_position
-            top_text, top_position = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
-            bottom_text, bottom_position = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
+            left_padding = 100
+            right_padding = 130
 
-            # to call OCR methods:
-            #if frame_count % ocr_interval == 0:
-            #process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom)
-
-            pattern = re.compile(r'[SP]-[A-Z]\d\.[A-Z]\d\.[A-Z]\d')
-            match = pattern.search(bottom_text)
-            if match:
-                extracted_code = match.group()
-                print(f"Extracted code: {extracted_code} / Time: {datetime.now()}")
-            match = pattern.search(bottom_text)
-
-            if match:
-                extracted_code = match.group()
-                print(f"Extracted code: {extracted_code} / Time: {datetime.now()}")
-                
-
-
-            # if is_non_empty_string(top_text):
-            #     print(top_text)
-            
-            # if is_non_empty_string(bottom_text):
-            #     print(bottom_text)
-
-            # Padding values
-            top_padding = 20
-            bottom_padding = 20
-            left_padding = 40
-            right_padding = 40
             # Draw the blue ROI rectangle here
-
             # Adjusted rectangle for the top ROI
             cv2.rectangle(image, 
-                        (x_offset_top + left_padding, y_offset_top + top_padding), 
-                        (x_offset_top + top_roi.shape[1] - right_padding, y_offset_top + top_roi.shape[0] - bottom_padding), 
+                        (x_offset_top + left_padding, y_offset_top + top_padding_topROI), 
+                        (x_offset_top + top_roi.shape[1] - right_padding, y_offset_top + top_roi.shape[0] - bottom_padding_topROI), 
                         (255, 0, 0), 2)
 
             # Adjusted rectangle for the bottom ROI
             cv2.rectangle(image, 
-                        (x_offset_bottom + left_padding, y_offset_bottom + top_padding), 
-                        (x_offset_bottom + bottom_roi.shape[1] - right_padding, y_offset_bottom + bottom_roi.shape[0] - bottom_padding), 
+                        (x_offset_bottom + left_padding, y_offset_bottom + top_padding_bottomROI), 
+                        (x_offset_bottom + bottom_roi.shape[1] - right_padding, y_offset_bottom + bottom_roi.shape[0] - bottom_padding_bottomROI), 
                         (255, 0, 0), 2)
             
+            # to call OCR methods:
+            if frame_count % ocr_interval == 0:
+                
+                process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom,
+                            top_padding_topROI, bottom_padding_topROI, left_padding, right_padding,
+                            top_padding_bottomROI, bottom_padding_bottomROI)
 
             # Show the frame with OCR applied
             cv2.imshow('OCR Camera View', image)
@@ -260,8 +216,11 @@ def generate_frames():
             
             frame_count += 1
             rawCapture.truncate(0)
+
 # function to process the ROIs for OCR and send the detected tags to the API
-def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom):
+def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom,
+                top_padding_topROI, bottom_padding_topROI, left_padding, right_padding,
+                top_padding_bottomROI, bottom_padding_bottomROI):
     global shelf_tag
     global pallet_tag
 
@@ -269,51 +228,23 @@ def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_botto
     shelf_tag = None
     pallet_tag = None
 
-    # Process Top ROI for Pallet Tag
-    pallet_tag, _ = perform_ocr(top_roi, x_offset_top, y_offset_top, "top")
+    # Extract the relevant portion of the top ROI based on the rectangle
+    top_roi_processed = top_roi[top_padding_topROI : top_roi.shape[0] - bottom_padding_topROI,
+                                left_padding : top_roi.shape[1] - right_padding]
 
-    # Process Bottom ROI for Shelf Tag
-    shelf_tag, _ = perform_ocr(bottom_roi, x_offset_bottom, y_offset_bottom, "bottom")
+    # Extract the relevant portion of the bottom ROI based on the rectangle
+    bottom_roi_processed = bottom_roi[top_padding_bottomROI : bottom_roi.shape[0] - bottom_padding_bottomROI,
+                                  left_padding : bottom_roi.shape[1] - right_padding]
+    
+    pallet_tag, _ = perform_ocr(top_roi_processed, "top")
+    shelf_tag, _ = perform_ocr(bottom_roi_processed, "bottom")
+    #time.sleep(5) # Sleep for 5 seconds to prevent repeated OCR
 
     # Check if both tags were detected and send them to the API
     if pallet_tag and shelf_tag:
         TagParser.send_tags(shelf_tag, pallet_tag)
         # Consider resetting the global tags if necessary
 
-# def main():
-#     # Initialize any required variables or configurations
-
-#     # Start camera feed and process frames
-#     CameraUtils.generate_frames()
-
-# Example usage of tag parsing
-#tag_code = "S-0002.C2.R4"
-# pattern S-A5.C3.R6
-# tag_code = "S-A5.C3.R6"
-# shelf_id, column, row = TagParser.parse_tag_code(tag_code)
-
-def do_some_bs():
-    # Constructing JSON data
-    json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
-
-    # URL of the backend endpoint
-    #url = "https://192.168.1.2:7128/Interactions"
-    url = "https://192.168.16.222:7128/Interactions/TwoCodes"
-    headers = {"Content-Type": "application/json"}
-
-    # Making the POST request
-    response = TagParser.post_data(url, json_data)
-
-    response = requests.post(url, data=json_data,headers=headers, verify=False)
-
-    # Processing the response
-    if response.status_code == 200:  # Or another success code as per your API
-        print("Success:", response.text)
-    else:
-        print("Error:", response.status_code, response.text)
-
-#parsed = response.text
-#print(parsed)
 
 @app.route('/')
 def index():
@@ -342,9 +273,11 @@ def get_detected_text():
 
     return jsonify(response)
 
+# function to run the Flask server
 def run_flask():
     # Set log level to WARNING to hide regular route access logs
     logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    print(f"Starting Flask server on http://0.0.0.0:5001")
     app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
 
 if __name__ == '__main__':
@@ -360,12 +293,4 @@ if __name__ == '__main__':
             # Use os._exit(0) to close the entire process including all threads
             os._exit(0)
 
- #usign the database class to connect to the database
-    # if db.connect():q
-    #     # Perform some database operation, for example, fetching data
-    #     results = db.execute_query("SELECT * FROM Pallet")
-    #     db.close()
-
-    # Print results to the console
-        #print("Database Results:", results)
-    
+ 
