@@ -19,6 +19,7 @@ import json
 from requests.adapters import HTTPAdapter, Retry
 import urllib3
 import RPi.GPIO as GPIO
+from threading import Thread
 
 from tag_parser import TagParser
 # from ocr_utils import OCRUtils
@@ -46,12 +47,20 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 app = Flask(__name__)
 CORS(app)
 
+#Global variables
 detected_text = None  # Global variable to store the detected text
 shelf_tag =None # Global variable to store the shelf tag
 pallet_tag = None # Global variable to store the pallet tag
 last_sent_text = None
 global_detection_time = None # Global variable for detection time
 
+def check_for_failed_requests():
+    print(time.ctime())
+    try:
+        TagParser.send_failed_tags()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    threading.Timer(10, check_for_failed_requests).start()
 
 # # function to preprocess the image for OCR
 def preprocess_image_for_ocr(frame, gamma = 2):
@@ -134,11 +143,11 @@ def get_split_roi(frame, part):
          
 
 # Generate frame by frame from camera   
-def generate_frames():  
-    with PiCamera() as camera:
+def generate_frames():
+    with PiCamera(resolution=(640, 480)) as camera:  
 
         #different resolutions
-        camera.resolution = (640, 480)
+        #camera.resolution = (640, 480)
         rawCapture = PiRGBArray(camera, size=(640, 480))
  
         # Allow the camera to warmup
@@ -242,8 +251,11 @@ def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_botto
 
     # Check if both tags were detected and send them to the API
     if pallet_tag and shelf_tag:
-        TagParser.send_tags(shelf_tag, pallet_tag)
-        # Consider resetting the global tags if necessary
+        try:
+            TagParser.send_tags(shelf_tag, pallet_tag)
+        except Exception as e:
+            print(f"Error sending tags: {e}")
+            # Here you can also call a function to save the tags locally
 
 
 @app.route('/')
@@ -272,6 +284,11 @@ def get_detected_text():
         response = {"detected_text": "", "detection_time": ""}
 
     return jsonify(response)
+    
+# Define a function to run your frame generation in a separate thread
+def start_frame_generation():
+    for frame in generate_frames():
+        pass  # The frames are generated and processed within the generate_frames function
 
 # function to run the Flask server
 def run_flask():
@@ -286,6 +303,10 @@ if __name__ == '__main__':
     flask_thread.start()
     #CameraUtils.generate_frames()
     #main()
+    # Start the frame generation in a separate thread
+    frame_thread = threading.Thread(target=start_frame_generation)
+    frame_thread.start()
+    
 
     print("Enter 'q' to quit:")
     while True:  # Main thread for user input
