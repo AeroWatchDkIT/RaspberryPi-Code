@@ -20,6 +20,7 @@ from requests.adapters import HTTPAdapter, Retry
 import urllib3
 import RPi.GPIO as GPIO
 from threading import Thread
+import subprocess
 
 from tag_parser import TagParser
 # from ocr_utils import OCRUtils
@@ -30,6 +31,7 @@ tesApi = tesserocr.PyTessBaseAPI(path=str(tessdata_path), lang='eng')
 
 # Use GPIO numbers not pin numbers
 GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
 
 # Set the GPIO pin (e.g., GPIO 17) to which the buzzer is connected
 buzzer_pin = 18
@@ -297,15 +299,42 @@ def run_flask():
     print(f"Starting Flask server on http://0.0.0.0:5001")
     app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
 
+# Function to free up the specified port
+def free_up_port(port):
+    find_process = f"lsof -t -i:{port}"
+    process = subprocess.run(find_process, shell=True, capture_output=True, text=True)
+    process_id = process.stdout.strip()
+
+    if process_id:
+        print(f"Killing process {process_id} on port {port}")
+        kill_process = f"sudo kill -9 {process_id}"
+        subprocess.run(kill_process, shell=True)
+    else:
+        print(f"No process is using port {port}")
+
+# Function to attempt releasing the camera
+def release_camera():
+    try:
+        camera = PiCamera()
+        camera.close()
+        print("Camera resource released.")
+    except:
+        print("No camera resource to release or error in releasing.")
+
 if __name__ == '__main__':
+    # Free up port 5001 before starting the Flask server
+    free_up_port(5001)
+    # Try to release the camera resource
+    release_camera()
+    
     # Run Flask in a separate thread
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
     #CameraUtils.generate_frames()
     #main()
     # Start the frame generation in a separate thread
-    frame_thread = threading.Thread(target=start_frame_generation)
-    frame_thread.start()
+    # frame_thread = threading.Thread(target=start_frame_generation)
+    # frame_thread.start()
     
 
     print("Enter 'q' to quit:")
