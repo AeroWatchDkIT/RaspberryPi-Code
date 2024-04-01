@@ -76,31 +76,32 @@ class TagParser:
         return json.dumps(data)
 
     # Send POST request to API
-    @staticmethod
-    def send_tags(shelf_tag=None, pallet_tag=None, json_data=None):
-        if json_data is None:
-            json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
+    # @staticmethod
+    # def send_tags(shelf_tag=None, pallet_tag=None, json_data=None):
+    #     if json_data is None:
+    #         json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
 
-        try:
-            url = "https://192.168.1.2:7128/Interactions/TwoCodes"
-            #url = "https://86.41.123.214:7128/Interactions/TwoCodes"
-            headers = {"Content-Type": "application/json"}
-            print(f"Sending request to URL: {url}")
-            response = requests.post(url, data=json_data, headers=headers, verify=False)
+    #     try:
+    #         #url = "https://192.168.1.2:7128/Interactions/TwoCodes"
+    #         url = "https://192.168.207.168:7128/Interactions/TwoCodes"
+    #         #url = "https://86.41.123.214:7128/Interactions/TwoCodes"
+    #         headers = {"Content-Type": "application/json"}
+    #         print(f"Sending request to URL: {url}")
+    #         response = requests.post(url, data=json_data, headers=headers, verify=False)
 
-            if response.status_code != 200:
-                print(f"Error: {response.status_code} - {response.text}")
-                raise Exception("Failed to send data to server.")
+    #         if response.status_code != 200:
+    #             print(f"Error: {response.status_code} - {response.text}")
+    #             raise Exception("Failed to send data to server.")
             
-            print(f"Success: {response.text}")
-        except requests.exceptions.ConnectionError as e:
-            print(f"Network error: {e}. Storing the request for later.")
-            with open("backup.txt", "a") as f:
-                f.write(json_data + '\n')
-        except Exception as e:
-            print(f"An error occurred: {e}. Storing the request for later.")
-            with open("backup.txt", "a") as f:
-                f.write(json_data + '\n')
+    #         print(f"Success: {response.text}")
+    #     except requests.exceptions.ConnectionError as e:
+    #         print(f"Network error: {e}. Storing the request for later.")
+    #         with open("backup.txt", "a") as f:
+    #             f.write(json_data + '\n')
+    #     except Exception as e:
+    #         print(f"An error occurred: {e}. Storing the request for later.")
+    #         with open("backup.txt", "a") as f:
+    #             f.write(json_data + '\n')
     # @staticmethod
     # def send_tags(shelf_tag=None, pallet_tag=None, json_data=None):
     #     if json_data is None:
@@ -120,32 +121,33 @@ class TagParser:
     #         with open("backup.txt", "a") as f:
     #             f.write(json_data + '\n')
 
-    # @staticmethod
-    # def send_tags(shelf_tag=None, pallet_tag=None, json_data=None):
-    #     # Constructing JSON data
-    #     if json_data is None:
-    #         json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
+    @staticmethod
+    def send_tags(shelf_tag=None, pallet_tag=None, json_data=None):
+        # Constructing JSON data
+        if json_data is None:
+            json_data = TagParser.construct_json(shelf_id=shelf_tag, pallet_id=pallet_tag)
 
-    #     try:
-    #         # URL of the backend endpoint
-    #         url = "https://192.168.1.2:7128/Interactions/TwoCodes"
-    #         #url = "https://192.168.16.222:7128/Interactions/TwoCodes"
-    #         headers = {"Content-Type": "application/json"}
+        try:
+            # URL of the backend endpoint
+            #url = "https://192.168.207.168:7128/Interactions/TwoCodes" #pi4_college_redmi
+            url = "https://192.168.1.23:7128/Interactions/TwoCodes" #pi5_home
+            #url = "https://192.168.16.222:7128/Interactions/TwoCodes"
+            headers = {"Content-Type": "application/json"}
 
-    #         # Making the POST request
-    #         #response = TagParser.post_data(url, json_data)
+            # Making the POST request
+            #response = TagParser.post_data(url, json_data)
 
-    #         response = requests.post(url, data=json_data,headers=headers, verify=False)
+            response = requests.post(url, data=json_data,headers=headers, verify=False)
 
-    #         # Processing the response
-    #         if response.status_code == 200:  # Or another success code as per your API
-    #             print("Success:", response.text)
-    #         else:
-    #             print("Error:", response.status_code, response.text)
-    #     except:
-    #         # TODO: Create single table database to be extra sure that data won't be lost on the PI
-    #         print("Something went wrong. Storing failed request in file")
-    #         f = open("backup.txt", "a")
-    #         f.write(json_data)
-    #         f.write("\n")
-    #         f.close()
+            # Processing the response
+            if response.status_code == 200:  # Or another success code as per your API
+                print("Success:", response.text)
+            else:
+                print("Error:", response.status_code, response.text)
+        except:
+            # TODO: Create single table database to be extra sure that data won't be lost on the PI
+            print("Something went wrong. Storing failed request in file")
+            f = open("backup.txt", "a")
+            f.write(json_data)
+            f.write("\n")
+            f.close()
