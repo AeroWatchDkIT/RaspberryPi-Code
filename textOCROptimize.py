@@ -25,21 +25,42 @@ from tag_parser import TagParser
 from pathlib import Path
 # Import the face recognition function
 from facehaarPicamFunc import perform_face_recognition
-
-tessdata_path = Path("/usr/share/tesseract-ocr/5/tessdata/")
-tesApi = tesserocr.PyTessBaseAPI(path=str(tessdata_path), lang='eng')
-
 # Use GPIO numbers not pin numbers
 #GPIO.setmode(GPIO.BCM)
 import gpiod
 from time import sleep
 import os
 
+# Set the path to the tessdata directory 
+tessdata_path = Path("/usr/share/tesseract-ocr/5/tessdata/")
+tesApi = tesserocr.PyTessBaseAPI(path=str(tessdata_path), lang='eng')
+# Suppress only the single InsecureRequestWarning from urllib3 needed
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+app = Flask(__name__)
+CORS(app)
+
+# Set the buzzer pin
 LED_PIN = 23  # Use the appropriate GPIO pin number
 chip = gpiod.Chip('gpiochip4')
 led_line = chip.get_line(LED_PIN)
 led_line.request(consumer="LED", type=gpiod.LINE_REQ_DIR_OUT)
 
+# Global variables
+detected_text = None  # Global variable to store the detected text
+shelf_tag =None # Global variable to store the shelf tag
+pallet_tag = None # Global variable to store the pallet tag
+last_sent_text = None
+global_detection_time = None # Global variable for detection time
+
+# function to check for failed requests and resend them
+def check_for_failed_requests():
+    print(time.ctime())
+    try:
+        TagParser.send_failed_tags()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    threading.Timer(10, check_for_failed_requests).start()
 
 # Function to buzz the buzzer
 def buzz(duration):
@@ -51,21 +72,8 @@ def buzz(duration):
     #GPIO.output(buzzer_pin, True)
     #time.sleep(duration)
     #GPIO.output(buzzer_pin, False)
-
-# Suppress only the single InsecureRequestWarning from urllib3 needed
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-app = Flask(__name__)
-CORS(app)
-
-detected_text = None  # Global variable to store the detected text
-shelf_tag =None # Global variable to store the shelf tag
-pallet_tag = None # Global variable to store the pallet tag
-last_sent_text = None
-global_detection_time = None # Global variable for detection time
-
-
-# # function to preprocess the image for OCR
+        
+# function to preprocess the image for OCR
 def preprocess_image_for_ocr(frame, gamma = 2):
     #print("\033[93m Func - process_rois\033[0m")
     # Display the original image
@@ -240,7 +248,6 @@ def generate_frames():
         picam2.stop()
         cv2.destroyAllWindows()
         
-
 # function to process the ROIs for OCR and send the detected tags to the API
 def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_bottom, y_offset_bottom,
                 top_padding_topROI, bottom_padding_topROI, left_padding, right_padding,
@@ -269,7 +276,6 @@ def process_rois(top_roi, x_offset_top, y_offset_top, bottom_roi, x_offset_botto
     if pallet_tag and shelf_tag:
         TagParser.send_tags(shelf_tag, pallet_tag)
         # Consider resetting the global tags if necessary
-
 
 @app.route('/')
 def index():
